@@ -1,0 +1,22 @@
+# REQUIRED — app won't run without this:
+requests
+
+# REQUIRED for good voice quality — a real Microsoft neural voice
+# (same tech Windows Narrator's best voices use). Needs internet to speak.
+edge-tts
+playsound==1.2.2
+
+# OPTIONAL — offline backup voice, used only if edge-tts has no internet.
+pyttsx3
+SpeechRecognition
+
+# OPTIONAL — only needed for the in-app "Users" admin panel (see README's
+# Firebase section). Not needed for anything else.
+firebase-admin
+
+# OPTIONAL — only needed for the fancy dashboard version (aria_webview.py).
+# Not needed for the simple version (aria.py).
+pywebview
+
+# OPTIONAL — only needed if you want to build a .exe (see README).
+pyinstaller

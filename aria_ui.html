@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+<meta charset="UTF-8">
+<title>ARIA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --bg: #03060b; --panel: #071019cc; --panel-solid: #0a1420; --line: #12283a;
+    --cyan: #4fe3ff; --cyan-dim: #17414f; --amber: #ffb454; --text: #cfe8f2; --text-dim: #4f7186;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{ height:100%; background:var(--bg); color:var(--text); font-family:'Rajdhani',sans-serif; overflow:hidden; }
+  #bgCanvas{ position:fixed; inset:0; z-index:0; }
+  #matrixCanvas{ position:fixed; inset:0; z-index:1; opacity:1; }
+  .vignette{ position:fixed; inset:0; z-index:2; pointer-events:none;
+    background: radial-gradient(ellipse at 50% 32%, transparent 0%, transparent 30%, rgba(3,6,11,0.55) 70%, rgba(3,6,11,0.97) 100%); }
+
+  .shell{ position:relative; z-index:3; height:100vh; display:grid; overflow:hidden;
+    grid-template-columns: 1fr; grid-template-rows: 62px minmax(0,1fr); gap:0; padding:14px; max-width:900px; margin:0 auto; }
+
+  header{ grid-column: 1 / -1; display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line); padding-bottom:10px; }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand-mark{ width:24px; height:24px; border-radius:50%; border:1.5px solid var(--cyan); position:relative; }
+  .brand-mark::after{ content:''; position:absolute; inset:5px; border-radius:50%; background:var(--cyan);
+    box-shadow:0 0 10px var(--cyan); animation:pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{opacity:.5} 50%{opacity:1} }
+  .brand-name{ font-family:'Orbitron',sans-serif; font-weight:700; letter-spacing:3px; font-size:17px; }
+  .clock{ font-family:'Orbitron',sans-serif; font-size:22px; letter-spacing:3px; color:var(--cyan);
+    text-shadow:0 0 12px rgba(79,227,255,0.5); }
+  .pills{ display:flex; gap:8px; }
+  .pill{ font-family:'Space Mono',monospace; font-size:9.5px; letter-spacing:1px; padding:4px 10px;
+    border:1px solid var(--cyan-dim); border-radius:20px; color:var(--text-dim); }
+  .pill.on{ color:var(--cyan); border-color:var(--cyan); }
+
+  /* side panels removed from the main view for a clean, immersive look */
+  aside{ display:none; }
+
+  .panel-title{ font-family:'Space Mono',monospace; font-size:10px; letter-spacing:2px; color:var(--text-dim);
+    margin:4px 4px 12px; }
+
+  /* left: gauges */
+  .gauge-row{ display:flex; align-items:center; gap:12px; margin-bottom:16px; padding:0 4px; }
+  .gauge-row svg{ flex-shrink:0; filter: drop-shadow(0 0 4px rgba(79,227,255,0.4)); }
+  .gauge-label{ font-family:'Space Mono',monospace; font-size:10px; color:var(--text-dim); letter-spacing:0.5px; }
+  .gauge-value{ font-family:'Orbitron',sans-serif; font-size:15px; color:var(--cyan); margin-top:2px; }
+
+  .mini-chart{ margin-top:6px; border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--panel); }
+  .mini-chart-title{ font-family:'Space Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; margin-bottom:4px; }
+
+  /* compact icon-only quick actions (replaces the old right-side module list) */
+  .quick-icons{ display:flex; justify-content:center; gap:10px; padding:6px 0 10px; flex-shrink:0; }
+  .qbtn{ width:36px; height:36px; border-radius:10px; border:1px solid var(--line); background:var(--panel);
+    color:#78e1ff; display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer; transition:.15s; }
+  .qbtn:hover{ border-color:#78e1ff; background:rgba(120,225,255,0.08); }
+
+  /* center */
+  main{ display:flex; flex-direction:column; padding:0 14px; min-width:0; min-height:0; overflow:hidden; }
+  .hero{ height:min(56vh, 300px); position:relative; flex-shrink:0; }
+  .hero-label{ position:absolute; top:8px; left:50%; transform:translateX(-50%); font-family:'Space Mono',monospace;
+    font-size:10px; letter-spacing:2px; color:var(--text-dim); }
+  .system-online{ position:absolute; bottom:2px; left:50%; transform:translateX(-50%); font-family:'Orbitron',sans-serif;
+    font-size:11px; letter-spacing:3px; color:#78e1ff; text-shadow:0 0 10px rgba(120,225,255,0.6); }
+
+  .log{ flex:1; min-height:0; overflow-y:auto; padding:10px 4px; display:flex; flex-direction:column; gap:10px;
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .log::-webkit-scrollbar{ width:5px; } .log::-webkit-scrollbar-thumb{ background:var(--line); border-radius:3px; }
+  .msg{ max-width:82%; font-size:14.5px; line-height:1.5; white-space:pre-wrap; }
+  .msg .who{ font-family:'Space Mono',monospace; font-size:8.5px; letter-spacing:1.5px; color:var(--text-dim); margin-bottom:3px; text-transform:uppercase; }
+  .msg.user{ align-self:flex-end; text-align:right; }
+  .msg.user .who{ color:var(--amber); }
+  .msg.user .bubble{ background:linear-gradient(135deg,#182430,#101a24); border:1px solid #24384a; border-radius:12px 12px 3px 12px; padding:8px 12px; }
+  .msg.bot .who{ color:var(--cyan); }
+  .msg.bot .bubble{ background:linear-gradient(135deg,#0a1a22cc,#081319cc); border:1px solid var(--cyan-dim); border-radius:12px 12px 12px 3px; padding:8px 12px; }
+  .msg.sys .bubble{ font-family:'Space Mono',monospace; font-size:11px; color:var(--text-dim); border:1px dashed var(--line); border-radius:7px; padding:6px 10px; }
+
+  .inputbar{ display:flex; align-items:center; gap:8px; padding:10px 0 4px; flex-shrink:0; }
+  .inputbar input{ flex:1; background:var(--panel-solid); border:1px solid var(--line); border-radius:10px;
+    color:var(--text); font-family:'Rajdhani',sans-serif; font-size:14.5px; padding:10px 14px; outline:none; }
+  .inputbar input:focus{ border-color:var(--cyan); }
+  .iconbtn{ width:38px; height:38px; border-radius:9px; border:1px solid var(--line); background:var(--panel-solid);
+    color:var(--cyan); cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .iconbtn:hover{ border-color:var(--cyan); }
+  .iconbtn.mic.active{ background:var(--amber); color:#241600; border-color:var(--amber); }
+  .iconbtn.send{ background:var(--cyan); color:#04252a; border-color:var(--cyan); }
+  .iconbtn svg{ width:16px; height:16px; }
+
+  /* ===================== AUTH SCREEN ===================== */
+  #authScreen{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    background: rgba(3,6,11,0.88); backdrop-filter: blur(4px); }
+  .auth-card{ width:340px; padding:28px 26px 24px; border-radius:14px; background:#0a1420;
+    border:1px solid #1c3348; box-shadow:0 0 40px rgba(255,170,60,0.08); }
+  .auth-title{ font-family:'Orbitron',sans-serif; font-size:18px; letter-spacing:3px; color:#a8ecff;
+    text-align:center; margin-bottom:4px; }
+  .auth-sub{ font-family:'Space Mono',monospace; font-size:10px; color:var(--text-dim); text-align:center;
+    letter-spacing:1px; margin-bottom:20px; }
+  .auth-field{ margin-bottom:12px; }
+  .auth-field input{ width:100%; padding:11px 13px; background:#0e1a26; border:1px solid #1c3348;
+    border-radius:8px; color:var(--text); font-family:'Rajdhani',sans-serif; font-size:14.5px; outline:none; }
+  .auth-field input:focus{ border-color:#78e1ff; }
+  .auth-btn{ width:100%; padding:11px; margin-top:6px; border:none; border-radius:8px; cursor:pointer;
+    background:linear-gradient(135deg,#4fe3ff,#2f8fd6); color:#031824; font-family:'Rajdhani',sans-serif;
+    font-weight:700; font-size:15px; letter-spacing:1px; }
+  .auth-btn:hover{ filter:brightness(1.08); }
+  .auth-switch{ text-align:center; margin-top:14px; font-size:12.5px; color:var(--text-dim); }
+  .auth-switch a{ color:#78e1ff; cursor:pointer; text-decoration:underline; }
+  .auth-error{ color:#ff6b6b; font-size:12px; text-align:center; margin-top:10px; min-height:16px;
+    font-family:'Space Mono',monospace; }
+  .auth-hint{ font-size:10.5px; color:var(--text-dim); text-align:center; margin-top:8px; line-height:1.5; }
+
+  /* ===================== BOOT SPLASH ===================== */
+  #bootScreen{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+    flex-direction:column; background:#03060b; }
+  .boot-ring-wrap{ width:220px; height:220px; position:relative; }
+  .boot-ring{ position:absolute; inset:0; border-radius:50%; border:1px solid #1c3348; }
+  .boot-ring.b1{ border-top-color:#78e1ff; border-right-color:#78e1ff; animation:spin 3s linear infinite; }
+  .boot-ring.b2{ inset:18px; border-bottom-color:#4fe3ff; border-left-color:#4fe3ff; animation:spin 2.2s linear infinite reverse; }
+  .boot-ring.b3{ inset:36px; border:1px dashed #78e1ff; animation:spin 5s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .boot-core{ position:absolute; inset:86px; border-radius:50%;
+    background: radial-gradient(circle at 35% 30%, #f2fdff, #4fe3ff 45%, #06303d 100%);
+    box-shadow:0 0 30px rgba(255,170,60,0.7); animation:bootpulse 1s ease-in-out infinite; }
+  @keyframes bootpulse{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.1);} }
+  .boot-title{ font-family:'Orbitron',sans-serif; font-size:20px; letter-spacing:6px; color:#a8ecff; margin-top:22px; }
+  .boot-log{ width:340px; margin-top:18px; font-family:'Space Mono',monospace; font-size:10.5px; color:#4fe3ff;
+    height:70px; overflow:hidden; text-align:left; opacity:0.85; }
+  .boot-bar-wrap{ width:340px; height:4px; background:#12283a; border-radius:2px; margin-top:14px; overflow:hidden; }
+  .boot-bar{ height:100%; width:0%; background:linear-gradient(90deg,#2f8fd6,#4fe3ff); transition:width .15s linear; }
+
+  /* ===================== USERS PANEL ===================== */
+  #usersScreen{ position:fixed; inset:0; z-index:55; display:none; align-items:center; justify-content:center;
+    background: rgba(3,6,11,0.88); backdrop-filter: blur(4px); }
+  .users-card{ width:420px; max-height:70vh; display:flex; flex-direction:column; padding:22px 22px 18px;
+    border-radius:14px; background:#0a1420; border:1px solid #1c3348; }
+  .users-title{ font-family:'Orbitron',sans-serif; font-size:15px; letter-spacing:2px; color:#a8ecff;
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .users-close{ cursor:pointer; color:var(--text-dim); font-size:18px; }
+  .users-list{ overflow-y:auto; flex:1; }
+  .user-row{ padding:9px 0; border-bottom:1px solid #142335; font-family:'Space Mono',monospace; font-size:11px; }
+  .user-row .email{ color:#4fe3ff; font-size:13px; margin-bottom:3px; }
+  .user-row .meta{ color:var(--text-dim); }
+  .users-error{ color:#ff6b6b; font-size:12px; text-align:center; padding:20px 0; font-family:'Space Mono',monospace; }
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<canvas id="matrixCanvas"></canvas>
+<div class="vignette"></div>
+
+<!-- AUTH SCREEN -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-title">A R I A</div>
+    <div class="auth-sub" id="authSubtitle">SECURE ACCESS REQUIRED</div>
+
+    <div id="authUsernameField" class="auth-field">
+      <input type="email" id="authUsername" placeholder="Email address" autocomplete="off">
+    </div>
+    <div class="auth-field">
+      <input type="password" id="authPassword" placeholder="Password" autocomplete="off">
+    </div>
+    <div id="authConfirmField" class="auth-field" style="display:none;">
+      <input type="password" id="authConfirm" placeholder="Confirm Password" autocomplete="off">
+    </div>
+
+    <button class="auth-btn" id="authSubmitBtn">Login</button>
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-switch" id="authSwitch">Naya account chahiye? <a id="authSwitchLink">Sign up</a></div>
+    <div class="auth-hint">Password: 8+ characters, letter + number. Real online account (Firebase) — kisi bhi computer se login ho sakta hai.</div>
+  </div>
+</div>
+
+<!-- BOOT SPLASH -->
+<div id="bootScreen">
+  <div class="boot-ring-wrap">
+    <div class="boot-ring b1"></div>
+    <div class="boot-ring b2"></div>
+    <div class="boot-ring b3"></div>
+    <div class="boot-core"></div>
+  </div>
+  <div class="boot-title">A R I A</div>
+  <div class="boot-log" id="bootLog"></div>
+  <div class="boot-bar-wrap"><div class="boot-bar" id="bootBar"></div></div>
+</div>
+
+<!-- USERS PANEL -->
+<div id="usersScreen">
+  <div class="users-card">
+    <div class="users-title">SIGNED-UP USERS <span class="users-close" id="usersClose">✕</span></div>
+    <div class="users-list" id="usersList">Loading...</div>
+  </div>
+</div>
+
+<div class="shell" id="appShell" style="display:none;">
+  <header>
+    <div class="brand"><div class="brand-mark"></div><div class="brand-name">A R I A</div></div>
+    <div class="clock" id="clock">00:00:00</div>
+    <div class="pills">
+      <div class="pill on" id="pillOnline">ONLINE</div>
+      <div class="pill" id="pillVoice">VOICE</div>
+      <div class="pill" id="pillBrain">BRAIN</div>
+      <div class="pill" id="pillUsers" style="cursor:pointer;" title="Signed-up users">USERS</div>
+      <div class="pill" id="pillLogout" style="cursor:pointer;" title="Logout">LOGOUT</div>
+    </div>
+  </header>
+
+  <aside id="leftPanel">
+    <div class="panel-title">SYSTEM STATUS</div>
+    <div id="gaugeContainer"></div>
+    <div class="mini-chart">
+      <div class="mini-chart-title">ACTIVITY MONITOR</div>
+      <canvas id="miniChart" width="210" height="70"></canvas>
+    </div>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <div class="hero-label">ADVANCED NEURAL PROCESSING SYSTEM</div>
+      <canvas id="heroCanvas"></canvas>
+      <div class="system-online" id="coreLabel">STANDING BY</div>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <div class="quick-icons" id="quickIcons">
+      <div class="qbtn" data-cmd="time" title="Time">⏱</div>
+      <div class="qbtn" data-cmd="weather" title="Weather">🌤</div>
+      <div class="qbtn" data-cmd="news" title="News">📰</div>
+      <div class="qbtn" data-cmd="price of bitcoin" title="Bitcoin">₿</div>
+      <div class="qbtn" data-cmd="open notepad" title="Notepad">📝</div>
+      <div class="qbtn" data-cmd="open chrome" title="Chrome">🌐</div>
+      <div class="qbtn" data-cmd="remind me" title="Reminder">⏰</div>
+      <div class="qbtn" data-cmd="__clear__" title="Clear">🗑</div>
+    </div>
+
+    <div class="inputbar">
+      <input type="text" id="textInput" placeholder="ARIA se baat karein, ya mic dabayein…" autocomplete="off">
+      <button class="iconbtn mic" id="micBtn" title="Voice input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <button class="iconbtn send" id="sendBtn" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </main>
+
+  <aside id="rightPanel">
+    <div class="panel-title">QUICK MODULES</div>
+    <div id="moduleList"></div>
+  </aside>
+</div>
+
+<script>
+/* ============== Clock ============== */
+function tickClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent = d.toLocaleTimeString('en-GB');
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ============== Gauges (left panel) ============== */
+const gauges = [
+  {id:'gVoice', label:'VOICE ENGINE', value:0},
+  {id:'gBrain', label:'AI BRAIN', value:0},
+  {id:'gRem', label:'ACTIVE REMINDERS', value:0, isCount:true},
+];
+function svgGauge(id, pct){
+  const r = 26, c = 2*Math.PI*r;
+  const offset = c * (1 - pct/100);
+  return `
+  <svg width="60" height="60" viewBox="0 0 60 60">
+    <circle cx="30" cy="30" r="${r}" fill="none" stroke="#12283a" stroke-width="5"/>
+    <circle id="${id}" cx="30" cy="30" r="${r}" fill="none" stroke="#4fe3ff" stroke-width="5"
+      stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${offset}"
+      transform="rotate(-90 30 30)"/>
+    <text x="30" y="35" text-anchor="middle" fill="#cfe8f2" font-size="12" font-family="Orbitron">${Math.round(pct)}</text>
+  </svg>`;
+}
+function renderGauges(voiceReady, brainReady, reminderCount){
+  const vals = [voiceReady?100:15, brainReady?100:15, Math.min(reminderCount*20,100)];
+  const container = document.getElementById('gaugeContainer');
+  container.innerHTML = gauges.map((g,i) => `
+    <div class="gauge-row">
+      ${svgGauge(g.id, vals[i])}
+      <div><div class="gauge-label">${g.label}</div>
+        <div class="gauge-value">${g.isCount ? reminderCount : (vals[i]===100?'READY':'OFF')}</div></div>
+    </div>`).join('');
+}
+
+/* ============== Mini activity chart (decorative, looks alive) ============== */
+const miniCanvas = document.getElementById('miniChart');
+const mctx = miniCanvas.getContext('2d');
+let miniData = Array.from({length: 40}, () => Math.random()*0.5+0.2);
+function drawMini(){
+  miniData.push(Math.max(0.1, Math.min(0.95, miniData[miniData.length-1] + (Math.random()-0.5)*0.25)));
+  miniData.shift();
+  mctx.clearRect(0,0,210,70);
+  mctx.beginPath();
+  miniData.forEach((v,i) => {
+    const x = i*(210/(miniData.length-1)), y = 70 - v*60;
+    i===0 ? mctx.moveTo(x,y) : mctx.lineTo(x,y);
+  });
+  mctx.strokeStyle = '#4fe3ff'; mctx.lineWidth = 1.5; mctx.stroke();
+  mctx.lineTo(210,70); mctx.lineTo(0,70); mctx.closePath();
+  const grad = mctx.createLinearGradient(0,0,0,70);
+  grad.addColorStop(0,'rgba(79,227,255,0.25)'); grad.addColorStop(1,'rgba(79,227,255,0)');
+  mctx.fillStyle = grad; mctx.fill();
+}
+setInterval(drawMini, 500); drawMini();
+
+/* ============== Module list (right panel) ============== */
+const modules = [
+  {icon:'⏱', label:'Time', cmd:'time'},
+  {icon:'📅', label:'Date', cmd:'date'},
+  {icon:'🌤', label:'Weather', cmd:'weather'},
+  {icon:'📰', label:'News', cmd:'news'},
+  {icon:'₿', label:'Bitcoin Price', cmd:'price of bitcoin'},
+  {icon:'📖', label:'Wikipedia', cmd:'wiki '},
+  {icon:'🔆', label:'Brightness Up', cmd:'brightness up'},
+  {icon:'🔉', label:'Volume Down', cmd:'volume down'},
+  {icon:'📝', label:'Open Notepad', cmd:'open notepad'},
+  {icon:'🌐', label:'Open Chrome', cmd:'open chrome'},
+  {icon:'📱', label:'WhatsApp on Phone', cmd:'open whatsapp on phone'},
+  {icon:'⏰', label:'Set Reminder', cmd:'remind me'},
+  {icon:'🗑', label:'Clear Chat', cmd:'__clear__'},
+];
+document.getElementById('moduleList').innerHTML = modules.map(m => `
+  <button class="module-btn" data-cmd="${m.cmd}">
+    <span class="module-icon">${m.icon}</span><span>${m.label}</span><span class="module-arrow">▸</span>
+  </button>`).join('');
+document.getElementById('moduleList').addEventListener('click', e => {
+  const btn = e.target.closest('.module-btn'); if(!btn) return;
+  const cmd = btn.dataset.cmd;
+  if(cmd === '__clear__'){ log.innerHTML=''; window.pywebview.api.reset_history(); addMsg('sys','Chat clear ho gayi.'); return; }
+  if(cmd.endsWith(' ')){ textInput.value = cmd; textInput.focus(); return; }
+  handleSend(cmd);
+});
+document.getElementById('quickIcons').addEventListener('click', e => {
+  const btn = e.target.closest('.qbtn'); if(!btn) return;
+  const cmd = btn.dataset.cmd;
+  if(cmd === '__clear__'){ log.innerHTML=''; window.pywebview.api.reset_history(); addMsg('sys','Chat clear ho gayi.'); return; }
+  handleSend(cmd);
+});
+
+/* ============== Hero: globe / orbit visualizer ============== */
+const heroCanvas = document.getElementById('heroCanvas');
+const hctx = heroCanvas.getContext('2d');
+function resizeHero(){
+  const rect = heroCanvas.parentElement.getBoundingClientRect();
+  heroCanvas.width = rect.width; heroCanvas.height = rect.height;
+}
+window.addEventListener('resize', resizeHero); resizeHero();
+
+const dataParticles = Array.from({length: 70}, () => ({
+  angle: Math.random()*Math.PI*2, radius: 60+Math.random()*80,
+  speed: (Math.random()*0.35+0.1) * (Math.random()<0.5?1:-1), size: 0.5+Math.random()*1.3,
+}));
+
+// tick marks around the dial, like a targeting/HUD reticle
+const tickCount = 60;
+
+let heroAngle = 0, heroState = 'idle';
+
+function drawHero(now){
+  const w = heroCanvas.width, h = heroCanvas.height, cx = w/2, cy = h/2 + 6;
+  hctx.clearRect(0,0,w,h);
+
+  heroAngle += heroState==='idle' ? 0.003 : 0.009;
+  const outerR = Math.min(w,h)*0.36;
+
+  // outer tick-mark dial (classic HUD reticle look)
+  for(let i=0;i<tickCount;i++){
+    const a = (i/tickCount)*Math.PI*2 + heroAngle*0.4;
+    const major = i % 5 === 0;
+    const len = major ? 10 : 5;
+    hctx.strokeStyle = major ? 'rgba(120,225,255,0.55)' : 'rgba(120,225,255,0.22)';
+    hctx.lineWidth = major ? 1.6 : 1;
+    hctx.beginPath();
+    hctx.moveTo(cx+Math.cos(a)*outerR, cy+Math.sin(a)*outerR);
+    hctx.lineTo(cx+Math.cos(a)*(outerR-len), cy+Math.sin(a)*(outerR-len));
+    hctx.stroke();
+  }
+
+  // concentric arc-reactor rings, each rotating at a different speed
+  const ringDefs = [
+    {r: outerR*0.86, speed: 1,    width: 1.4, dash: null,   alpha: 0.55},
+    {r: outerR*0.68, speed: -1.6, width: 1,   dash: [10,6], alpha: 0.4},
+    {r: outerR*0.50, speed: 2.1,  width: 1,   dash: [3,5],  alpha: 0.5},
+  ];
+  ringDefs.forEach((rd) => {
+    hctx.save();
+    hctx.translate(cx, cy); hctx.rotate(heroAngle*rd.speed);
+    hctx.strokeStyle = `rgba(120,225,255,${rd.alpha})`;
+    hctx.lineWidth = rd.width;
+    if(rd.dash) hctx.setLineDash(rd.dash); else hctx.setLineDash([]);
+    hctx.beginPath(); hctx.arc(0,0,rd.r,0,Math.PI*2); hctx.stroke();
+    hctx.restore();
+  });
+  hctx.setLineDash([]);
+
+  // hexagonal "arc reactor" frame — the classic Jarvis/Stark motif
+  hctx.save();
+  hctx.translate(cx, cy); hctx.rotate(heroAngle*0.6);
+  hctx.strokeStyle = 'rgba(180,240,255,0.5)'; hctx.lineWidth = 1.3;
+  hctx.beginPath();
+  for(let i=0;i<6;i++){
+    const a = (i/6)*Math.PI*2;
+    const x = Math.cos(a)*outerR*0.36, y = Math.sin(a)*outerR*0.36;
+    i===0 ? hctx.moveTo(x,y) : hctx.lineTo(x,y);
+  }
+  hctx.closePath(); hctx.stroke();
+  hctx.restore();
+
+  // fine data particles drifting slowly around the dial
+  dataParticles.forEach(p => {
+    p.angle += p.speed*0.01;
+    const x = cx + Math.cos(p.angle)*p.radius, y = cy + Math.sin(p.angle)*p.radius;
+    const tw = 0.3 + 0.5*Math.abs(Math.sin(now/700 + p.angle*3));
+    hctx.fillStyle = `rgba(150,230,255,${tw})`;
+    hctx.beginPath(); hctx.arc(x,y,p.size,0,Math.PI*2); hctx.fill();
+  });
+
+  // glowing white-blue core — the reactor itself
+  const pulse = heroState==='thinking' ? 4*Math.sin(now/150) : heroState==='speaking' ? 4*Math.sin(now/90) : 2*Math.sin(now/500);
+  const coreR = 24 + pulse;
+  const coreColor = heroState==='listening' ? '255,170,60' : '120,225,255';
+  const grad = hctx.createRadialGradient(cx,cy,2,cx,cy,coreR*2.8);
+  grad.addColorStop(0, `rgba(${coreColor},0.95)`);
+  grad.addColorStop(0.4, `rgba(${coreColor},0.3)`);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  hctx.fillStyle = grad;
+  hctx.beginPath(); hctx.arc(cx,cy,coreR*2.8,0,Math.PI*2); hctx.fill();
+  hctx.fillStyle = '#f2fdff';
+  hctx.beginPath(); hctx.arc(cx,cy,coreR*0.42,0,Math.PI*2); hctx.fill();
+
+  hctx.font = "700 13px Orbitron"; hctx.fillStyle = 'rgba(190,235,255,0.9)'; hctx.textAlign = 'center';
+  hctx.fillText('ARIA', cx, h - 12);
+
+  requestAnimationFrame(drawHero);
+}
+requestAnimationFrame(drawHero);
+
+/* ============== faint background starfield ============== */
+const bgCanvas = document.getElementById('bgCanvas');
+const bctx = bgCanvas.getContext('2d');
+function resizeBg(){ bgCanvas.width = innerWidth; bgCanvas.height = innerHeight; }
+window.addEventListener('resize', resizeBg); resizeBg();
+const stars = Array.from({length: 90}, () => ({x:Math.random(), y:Math.random(), r:Math.random()*1.2+0.3, a:Math.random()*0.4+0.1}));
+function drawBg(){
+  bctx.clearRect(0,0,bgCanvas.width,bgCanvas.height);
+  stars.forEach(s => {
+    bctx.fillStyle = `rgba(79,227,255,${s.a})`;
+    bctx.beginPath(); bctx.arc(s.x*bgCanvas.width, s.y*bgCanvas.height, s.r, 0, Math.PI*2); bctx.fill();
+  });
+  requestAnimationFrame(drawBg);
+}
+requestAnimationFrame(drawBg);
+
+/* ============== Jarvis-style HUD background (radar rings + blueprint grid) ============== */
+const matrixCanvas = document.getElementById('matrixCanvas');
+const mrctx = matrixCanvas.getContext('2d');
+function resizeMatrix(){ matrixCanvas.width = innerWidth; matrixCanvas.height = innerHeight; }
+window.addEventListener('resize', resizeMatrix); resizeMatrix();
+
+let hudAngle = 0;
+const hudNodes = Array.from({length: 26}, () => ({
+  x: Math.random(), y: Math.random(), pulse: Math.random()*Math.PI*2,
+}));
+
+function drawMatrix(){
+  const w = matrixCanvas.width, h = matrixCanvas.height, cx = w/2, cy = h*0.42;
+  mrctx.clearRect(0, 0, w, h);
+
+  // faint blueprint grid
+  mrctx.strokeStyle = 'rgba(90,190,230,0.05)';
+  mrctx.lineWidth = 1;
+  const gap = 42;
+  for(let x = 0; x < w; x += gap){ mrctx.beginPath(); mrctx.moveTo(x,0); mrctx.lineTo(x,h); mrctx.stroke(); }
+  for(let y = 0; y < h; y += gap){ mrctx.beginPath(); mrctx.moveTo(0,y); mrctx.lineTo(w,y); mrctx.stroke(); }
+
+  // large concentric radar rings, centered a bit above middle (behind the hero orb)
+  const maxR = Math.max(w,h)*0.62;
+  for(let i=1;i<=4;i++){
+    mrctx.strokeStyle = `rgba(120,225,255,${0.06 - i*0.008})`;
+    mrctx.lineWidth = 1;
+    mrctx.beginPath(); mrctx.arc(cx, cy, (maxR/4)*i, 0, Math.PI*2); mrctx.stroke();
+  }
+
+  // slow rotating radar sweep
+  hudAngle += 0.006;
+  mrctx.save();
+  mrctx.translate(cx, cy); mrctx.rotate(hudAngle);
+  const sweep = mrctx.createLinearGradient(0,0,maxR,0);
+  sweep.addColorStop(0, 'rgba(120,225,255,0.10)');
+  sweep.addColorStop(1, 'rgba(120,225,255,0)');
+  mrctx.fillStyle = sweep;
+  mrctx.beginPath(); mrctx.moveTo(0,0); mrctx.arc(0,0,maxR,-0.2,0.2); mrctx.closePath(); mrctx.fill();
+  mrctx.restore();
+
+  // scattered "data node" points with faint connecting lines — subtle circuit feel
+  const now = performance.now();
+  hudNodes.forEach((n, i) => {
+    const x = n.x*w, y = n.y*h;
+    const tw = 0.15 + 0.25*Math.abs(Math.sin(now/1200 + n.pulse));
+    mrctx.fillStyle = `rgba(120,225,255,${tw})`;
+    mrctx.beginPath(); mrctx.arc(x, y, 1.4, 0, Math.PI*2); mrctx.fill();
+    const next = hudNodes[(i+1) % hudNodes.length];
+    mrctx.strokeStyle = `rgba(120,225,255,0.04)`;
+    mrctx.beginPath(); mrctx.moveTo(x,y); mrctx.lineTo(next.x*w, next.y*h); mrctx.stroke();
+  });
+
+  requestAnimationFrame(drawMatrix);
+}
+requestAnimationFrame(drawMatrix);
+
+/* ============== Chat logic (talks to Python via pywebview) ============== */
+const log = document.getElementById('log');
+const coreLabel = document.getElementById('coreLabel');
+const textInput = document.getElementById('textInput');
+const micBtn = document.getElementById('micBtn');
+const sendBtn = document.getElementById('sendBtn');
+let awaitingReminder = false;
+let awaitingWeatherCity = false;
+
+function addMsg(who, text){
+  const bubble = renderMsg(who, text);
+  if(who === 'user' || who === 'bot'){
+    // fire-and-forget: don't block the UI waiting for the cloud save
+    window.pywebview.api.log_message(who, text).catch(() => {});
+  }
+  return bubble;
+}
+function renderMsg(who, text){
+  const wrap = document.createElement('div'); wrap.className = 'msg '+who;
+  const label = who==='user'?'You':who==='bot'?'ARIA':'System';
+  wrap.innerHTML = `<div class="who">${label}</div><div class="bubble"></div>`;
+  wrap.querySelector('.bubble').textContent = text;
+  log.appendChild(wrap); log.scrollTop = log.scrollHeight;
+  return wrap.querySelector('.bubble');
+}
+function setState(state){
+  heroState = state;
+  coreLabel.textContent = {idle:'STANDING BY', thinking:'PROCESSING', speaking:'RESPONDING', listening:'LISTENING'}[state] || 'STANDING BY';
+}
+
+let voiceReady = false;
+async function speak(text){
+  setState('speaking');
+  try{ await window.pywebview.api.speak_text(text); } catch(e) {}
+  setState('idle');
+}
+async function typeReveal(bubble, text){
+  bubble.textContent=''; const words = text.split(' ');
+  for(let i=0;i<words.length;i++){ bubble.textContent += (i?' ':'')+words[i]; log.scrollTop=log.scrollHeight; await new Promise(r=>setTimeout(r,16)); }
+}
+
+async function handleSend(raw){
+  if(!raw || !raw.trim()) return;
+  addMsg('user', raw);
+
+  if(awaitingReminder){
+    awaitingReminder = false;
+    setState('thinking');
+    const reply = await window.pywebview.api.submit_reminder(raw);
+    const b = addMsg('bot',''); await typeReveal(b, reply); speak(reply); setState('idle');
+    refreshStatus();
+    return;
+  }
+
+  if(awaitingWeatherCity){
+    awaitingWeatherCity = false;
+    setState('thinking');
+    const reply = await window.pywebview.api.local_command('weather in ' + raw);
+    const b = addMsg('bot',''); await typeReveal(b, reply); speak(reply); setState('idle');
+    return;
+  }
+
+  setState('thinking');
+  const local = await window.pywebview.api.local_command(raw);
+  if(local === 'REMINDER_PROMPT'){
+    awaitingReminder = true;
+    const ask = "Kya yaad rakhwana hai? Likh dein.";
+    const b = addMsg('bot',''); await typeReveal(b, ask); speak(ask); setState('idle'); return;
+  }
+  if(local === 'WEATHER_PROMPT'){
+    awaitingWeatherCity = true;
+    const ask = "Kis shehar ka mausam chahiye?";
+    const b = addMsg('bot',''); await typeReveal(b, ask); speak(ask); setState('idle'); return;
+  }
+  if(local){ const b = addMsg('bot',''); await typeReveal(b, local); speak(local); setState('idle'); return; }
+
+  const reply = await window.pywebview.api.ask_ai(raw);
+  const b = addMsg('bot',''); await typeReveal(b, reply); speak(reply); setState('idle');
+}
+
+sendBtn.addEventListener('click', () => { const v=textInput.value; textInput.value=''; handleSend(v); });
+textInput.addEventListener('keydown', e => { if(e.key==='Enter'){ const v=textInput.value; textInput.value=''; handleSend(v); } });
+micBtn.addEventListener('click', async () => {
+  micBtn.classList.add('active'); setState('listening');
+  const spoken = await window.pywebview.api.listen();
+  micBtn.classList.remove('active'); setState('idle');
+  if(spoken) handleSend(spoken); else addMsg('sys','Kuch sunayi nahi diya, dobara koshish karein.');
+});
+
+/* ============== status polling ============== */
+async function refreshStatus(){
+  try{
+    const s = await window.pywebview.api.get_status();
+    document.getElementById('pillBrain').classList.toggle('on', s.brain_ready);
+    document.getElementById('pillVoice').classList.toggle('on', s.voice_ready);
+    renderGauges(s.voice_ready, s.brain_ready, s.reminder_count);
+  }catch(e){ renderGauges(false, false, 0); }
+}
+setInterval(refreshStatus, 4000);
+
+async function startApp(){
+  document.getElementById('appShell').style.display = 'grid';
+  renderMsg('sys', 'ARIA dashboard initialized.');
+
+  let restored = [];
+  try{ restored = await window.pywebview.api.get_chat_log(); }catch(e){}
+
+  if(restored && restored.length){
+    restored.forEach(m => renderMsg(m.who, m.text));
+    refreshStatus();
+  } else {
+    setTimeout(async () => {
+      addMsg('bot', 'Assalam-o-Alaikum! Main ARIA hoon — system online hai.');
+      speak('Assalam-o-Alaikum! Main ARIA hoon.');
+      refreshStatus();
+    }, 400);
+  }
+}
+
+/* ============== Boot splash (plays after successful login) ============== */
+const BOOT_LINES = [
+  'INITIALIZING ARIA CORE...',
+  'LOADING NEURAL PROCESSING MODULES...',
+  'VERIFYING SECURE SESSION...',
+  'CALIBRATING VOICE ENGINE...',
+  'ESTABLISHING SYSTEM LINKS...',
+  'ALL SYSTEMS NOMINAL.',
+];
+function playBootSequence(){
+  document.getElementById('authScreen').style.display = 'none';
+  const bootScreen = document.getElementById('bootScreen');
+  const bootLog = document.getElementById('bootLog');
+  const bootBar = document.getElementById('bootBar');
+  bootScreen.style.display = 'flex';
+  bootLog.innerHTML = '';
+  bootBar.style.width = '0%';
+
+  // a short synthesized "power-up" beep using the Web Audio API (no audio file needed)
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(220, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.8);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.1);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 1.2);
+  }catch(e){}
+
+  let i = 0;
+  const lineTimer = setInterval(() => {
+    if(i < BOOT_LINES.length){
+      const p = document.createElement('div');
+      p.textContent = '> ' + BOOT_LINES[i];
+      bootLog.appendChild(p);
+      bootLog.scrollTop = bootLog.scrollHeight;
+      i++;
+    }
+  }, 380);
+
+  let pct = 0;
+  const barTimer = setInterval(() => {
+    pct += 4;
+    bootBar.style.width = Math.min(pct, 100) + '%';
+    if(pct >= 100){
+      clearInterval(barTimer);
+      clearInterval(lineTimer);
+      setTimeout(() => {
+        bootScreen.style.display = 'none';
+        startApp();
+      }, 350);
+    }
+  }, 90);
+}
+
+/* ============== Auth screen logic (Firebase — real online accounts) ============== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDh-E4SLyHr3S6VkB_KzLoVP0iIa1wWrhk",
+  authDomain: "aria-7d174.firebaseapp.com",
+  databaseURL: "https://aria-7d174-default-rtdb.firebaseio.com",
+  projectId: "aria-7d174",
+  storageBucket: "aria-7d174.firebasestorage.app",
+  messagingSenderId: "306277054485",
+  appId: "1:306277054485:web:b504e62c0d72c826f7361c",
+};
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+
+const COMMON_WEAK_PW = ["password","admin123","password1","12345678","123456789","qwerty123",
+  "letmein","welcome1","changeme","iloveyou","abc12345","admin"];
+
+function passwordPolicyError(email, password){
+  if(password.length < 8) return "Password kam se kam 8 characters ka hona chahiye.";
+  if(!/[A-Za-z]/.test(password)) return "Password mein kam se kam ek letter hona chahiye.";
+  if(!/[0-9]/.test(password)) return "Password mein kam se kam ek number hona chahiye.";
+  if(COMMON_WEAK_PW.includes(password.toLowerCase())) return "Yeh password bohot aam hai — koi behtar password chunein.";
+  const localPart = (email.split('@')[0] || '').toLowerCase();
+  if(password.toLowerCase() === localPart) return "Password email jaisa nahi ho sakta.";
+  return null;
+}
+
+function firebaseErrorMessage(e){
+  const code = e.code || '';
+  if(code.includes('email-already-in-use')) return 'Yeh email pehle se registered hai — Login try karein.';
+  if(code.includes('invalid-email')) return 'Email format sahi nahi hai.';
+  if(code.includes('weak-password')) return 'Password bohot kamzor hai.';
+  if(code.includes('user-not-found') || code.includes('wrong-password') || code.includes('invalid-credential')) return 'Email ya password ghalat hai.';
+  if(code.includes('too-many-requests')) return 'Bohot dafa ghalat koshish hui — thodi dair baad try karein.';
+  if(code.includes('network-request-failed')) return 'Internet connection check karein.';
+  return 'Error: ' + (e.message || code);
+}
+
+let authMode = 'login'; // or 'signup'
+
+function setAuthMode(mode){
+  authMode = mode;
+  const confirmField = document.getElementById('authConfirmField');
+  const submitBtn = document.getElementById('authSubmitBtn');
+  const subtitle = document.getElementById('authSubtitle');
+  const switchEl = document.getElementById('authSwitch');
+  document.getElementById('authError').textContent = '';
+  if(mode === 'signup'){
+    confirmField.style.display = 'block';
+    submitBtn.textContent = 'Sign Up';
+    subtitle.textContent = 'CREATE YOUR ARIA ACCOUNT';
+    switchEl.innerHTML = 'Pehle se account hai? <a id="authSwitchLink">Login</a>';
+  } else {
+    confirmField.style.display = 'none';
+    submitBtn.textContent = 'Login';
+    subtitle.textContent = 'SECURE ACCESS REQUIRED';
+    switchEl.innerHTML = 'Naya account chahiye? <a id="authSwitchLink">Sign up</a>';
+  }
+  document.getElementById('authSwitchLink').addEventListener('click', () => {
+    setAuthMode(authMode === 'login' ? 'signup' : 'login');
+  });
+}
+
+async function handleAuthSubmit(){
+  const email = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('authError');
+  const submitBtn = document.getElementById('authSubmitBtn');
+  errEl.textContent = '';
+
+  if(!email || !password){ errEl.textContent = 'Email aur password dono zaroori hain.'; return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errEl.textContent = 'Sahi email address likhein.'; return; }
+
+  submitBtn.disabled = true;
+  try{
+    let userCred;
+    if(authMode === 'signup'){
+      const confirm = document.getElementById('authConfirm').value;
+      if(password !== confirm){ errEl.textContent = 'Dono passwords match nahi karte.'; submitBtn.disabled = false; return; }
+      const pErr = passwordPolicyError(email, password);
+      if(pErr){ errEl.textContent = pErr; submitBtn.disabled = false; return; }
+      userCred = await fbAuth.createUserWithEmailAndPassword(email, password);
+    } else {
+      userCred = await fbAuth.signInWithEmailAndPassword(email, password);
+    }
+    const idToken = await userCred.user.getIdToken();
+    await window.pywebview.api.set_cloud_user(userCred.user.uid, idToken, email);
+    playBootSequence();
+  }catch(e){
+    errEl.textContent = firebaseErrorMessage(e);
+    submitBtn.disabled = false;
+  }
+}
+
+document.getElementById('authSubmitBtn').addEventListener('click', handleAuthSubmit);
+document.getElementById('authPassword').addEventListener('keydown', e => { if(e.key === 'Enter') handleAuthSubmit(); });
+document.getElementById('authConfirm').addEventListener('keydown', e => { if(e.key === 'Enter') handleAuthSubmit(); });
+
+setAuthMode('login');
+
+/* ============== Stay logged in across restarts ============== */
+// Firebase already remembers the session on disk; we just need to check
+// for it when the app opens, so the person isn't forced to log in every
+// single time they use ARIA.
+let sessionChecked = false;
+fbAuth.onAuthStateChanged(async (user) => {
+  if(sessionChecked) return;  // only act on the very first check at startup
+  sessionChecked = true;
+
+  if(user){
+    try{
+      const idToken = await user.getIdToken();
+      await window.pywebview.api.set_cloud_user(user.uid, idToken, user.email);
+      document.getElementById('authScreen').style.display = 'none';
+      startApp();
+    }catch(e){
+      // token refresh failed (e.g. no internet) — fall back to asking for login
+      setAuthMode('login');
+    }
+  }
+  // if no user, the login form (already shown by default) just stays visible
+});
+
+document.getElementById('pillLogout').addEventListener('click', async () => {
+  try{ await fbAuth.signOut(); }catch(e){}
+  location.reload();  // simplest reliable way back to a clean login screen
+});
+
+/* ============== Users panel ============== */
+document.getElementById('pillUsers').addEventListener('click', async () => {
+  const screen = document.getElementById('usersScreen');
+  const list = document.getElementById('usersList');
+  screen.style.display = 'flex';
+  list.innerHTML = 'Loading...';
+  try{
+    const res = await window.pywebview.api.list_users();
+    if(!res.ok){
+      list.innerHTML = `<div class="users-error">${res.error}</div>`;
+      return;
+    }
+    if(!res.users.length){
+      list.innerHTML = `<div class="users-error">Koi users nahi mile.</div>`;
+      return;
+    }
+    list.innerHTML = res.users.map(u => `
+      <div class="user-row">
+        <div class="email">${u.email}</div>
+        <div class="meta">Signed up: ${u.created} · Last login: ${u.last_login}</div>
+      </div>`).join('');
+  }catch(e){
+    list.innerHTML = `<div class="users-error">Error: ${e}</div>`;
+  }
+});
+document.getElementById('usersClose').addEventListener('click', () => {
+  document.getElementById('usersScreen').style.display = 'none';
+});
+</script>
+</body>
+</html>
